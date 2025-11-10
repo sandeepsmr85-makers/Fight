@@ -1,0 +1,16 @@
+I don't see specific information about configuring Stagehand v3 to use a custom GenAI gateway that only supports the standard OpenAI `/chat/completions` endpoint format instead of the Vercel AI SDK's newer API format.Based on the documentation, Stagehand v3 uses the Vercel AI SDK internally, but you can configure it to work with custom endpoints using the `baseURL` parameter. For your GenAI gateway that only supports the standard OpenAI `/chat/completions` format, you can configure Stagehand like this:
+
+```typescript
+const stagehand = new Stagehand({
+  env: "BROWSERBASE",
+  model: {
+    modelName: "openai/gpt-4o", // Use OpenAI format
+    apiKey: process.env.YOUR_API_KEY,
+    baseURL: "https://your-genai-gateway.com/v1" // Point to your gateway
+  }
+});
+```
+
+The `baseURL` parameter allows you to redirect API calls to your custom endpoint. Make sure your gateway URL ends with `/v1` (without `/chat/completions`) as the SDK appends the endpoint path automatically.
+
+If this doesn't work with your gateway's specific implementation, you can also use the `llmClient` option to pass a custom Vercel AI SDK client that's configured for your gateway's requirements. See the [Models configuration page](/v3/configuration/models) for more details on custom client setup.
