@@ -1,0 +1,74 @@
+import extract_msg
+import email
+from email.message import EmailMessage
+import base64
+import os
+
+
+def msg_to_eml(msg_obj):
+    """
+    Convert extract-msg object to an EmailMessage (RFC compliant).
+    Handles nested .msg attachments recursively.
+    """
+    eml = EmailMessage()
+
+    # Set standard headers
+    eml['From'] = msg_obj.sender or ""
+    eml['To'] = msg_obj.to or ""
+    if msg_obj.cc:
+        eml['Cc'] = msg_obj.cc
+    eml['Subject'] = msg_obj.subject or ""
+    eml['Date'] = msg_obj.date if msg_obj.date else ""
+
+    # Determine body format
+    body_text = msg_obj.body or ""
+    body_html = msg_obj.bodyHTML or None
+
+    if body_html:
+        # multipart alternative: text + HTML
+        eml.set_content(body_text or "(No plain text body)")
+        eml.add_alternative(body_html, subtype='html')
+    else:
+        eml.set_content(body_text)
+
+    # Handle attachments
+    for attachment in msg_obj.attachments:
+        filename = attachment.filename
+
+        # Nested .msg? process recursively and attach as message/rfc822
+        if filename.lower().endswith(".msg"):
+            nested_msg = extract_msg.openMsg(attachment.data)
+            nested_eml = msg_to_eml(nested_msg)
+
+            eml.add_attachment(
+                nested_eml.as_bytes(),
+                maintype="message",
+                subtype="rfc822",
+                filename=filename
+            )
+        else:
+            # Standard attachment
+            content = attachment.data
+            maintype, subtype = ("application", "octet-stream")
+
+            eml.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
+
+    return eml
+
+
+def convert_msg_to_eml(input_msg_path, output_eml_path):
+    """Main wrapper: convert .msg file to .eml RFC822 format"""
+    msg = extract_msg.Message(input_msg_path)
+    eml_message = msg_to_eml(msg)
+
+    with open(output_eml_path, "wb") as f:
+        f.write(eml_message.as_bytes())
+
+    print(f"✔ Successfully created: {output_eml_path}")
+
+
+# ---------- RUN ----------
+if __name__ == "__main__":
+    input_file = "email.msg"   # change to your file name
+    output_file = "email_converted.eml"
+    convert_msg_to_eml(input_file, output_file)
