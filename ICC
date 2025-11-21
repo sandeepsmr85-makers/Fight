@@ -1,0 +1,94 @@
+import extract_msg
+from email.message import EmailMessage
+import mimetypes
+
+
+def get_html_body(msg):
+    """Try all possible attribute names for HTML content."""
+    return (
+        getattr(msg, "body_html", None)
+        or getattr(msg, "htmlBody", None)
+        or getattr(msg, "bodyHTML", None)
+        or None
+    )
+
+
+def guess_mime(filename):
+    """Guess MIME type based on file extension."""
+    mime, _ = mimetypes.guess_type(filename)
+    if mime:
+        return mime.split("/", 1)
+    return ("application", "octet-stream")  # fallback
+
+
+def msg_to_eml(msg_obj):
+    """
+    Convert extract_msg.Message into standard RFC822 EmailMessage.
+    Fully recursive for nested .msg attachments.
+    """
+    eml = EmailMessage()
+
+    # --- Headers ---
+    eml["From"] = msg_obj.sender or ""
+    eml["To"] = msg_obj.to or ""
+    
+    if msg_obj.cc:
+        eml["Cc"] = msg_obj.cc
+
+    eml["Subject"] = msg_obj.subject or ""
+    eml["Date"] = msg_obj.date or ""
+
+    # --- Body (text + HTML if available) ---
+    text_body = msg_obj.body or "(No text body found)"
+    html_body = get_html_body(msg_obj)
+
+    if html_body:
+        eml.set_content(text_body)
+        eml.add_alternative(html_body, subtype="html")
+    else:
+        eml.set_content(text_body)
+
+    # --- Attachments ---
+    for attachment in msg_obj.attachments:
+        filename = attachment.filename or "unknown"
+
+        # If attachment is another .msg, process recursively
+        if filename.lower().endswith(".msg"):
+            nested_msg = extract_msg.openMsg(attachment.data)
+            nested_eml = msg_to_eml(nested_msg)
+
+            # Must specify MIME type explicitly!
+            eml.add_attachment(
+                nested_eml.as_bytes(),
+                maintype="message",
+                subtype="rfc822",
+                filename=filename
+            )
+
+        else:
+            # Normal file attachment (binary)
+            maintype, subtype = guess_mime(filename)
+
+            eml.add_attachment(
+                attachment.data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=filename
+            )
+
+    return eml
+
+
+def convert_msg_to_eml(input_msg_path, output_eml_path):
+    msg = extract_msg.Message(input_msg_path)
+    eml_obj = msg_to_eml(msg)
+
+    with open(output_eml_path, "wb") as f:
+        f.write(eml_obj.as_bytes())
+
+    print(f"✔ Successfully generated: {output_eml_path}")
+
+
+# ----- RUN -----
+if __name__ == "__main__":
+    convert_msg_to_eml("email.msg", "email_converted.eml")
