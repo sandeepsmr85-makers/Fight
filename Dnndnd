@@ -1,0 +1,70 @@
+import extract_msg
+from email.message import EmailMessage
+from email.utils import formatdate
+from io import BytesIO
+
+
+def msg_to_eml(msg):
+    """Convert extract_msg.Message to EmailMessage with nested support."""
+    
+    email = EmailMessage()
+
+    # Headers
+    email['Subject'] = msg.subject or ""
+    email['From'] = msg.sender or ""
+    email['To'] = msg.to or ""
+    if msg.cc:
+        email['Cc'] = msg.cc
+    if msg.date:
+        email['Date'] = msg.date
+
+    # Body (prefer plain text)
+    body = msg.body or "(No text body found)"
+    email.set_content(body)
+
+    # Attachments including nested .msg
+    for attachment in msg.attachments:
+        filename = attachment.longFilename or attachment.shortFilename or "attachment"
+
+        if filename.lower().endswith(".msg"):
+            # -------- Nested MSG handling --------
+            nested_msg = extract_msg.Message(BytesIO(attachment.data))
+            nested_email = msg_to_eml(nested_msg)
+
+            nested_bytes = nested_email.as_bytes()
+
+            email.add_attachment(
+                nested_bytes,
+                maintype="message",
+                subtype="rfc822",
+                filename=filename.replace(".msg", ".eml")
+            )
+        else:
+            # -------- Regular File attachment --------
+            email.add_attachment(
+                attachment.data,
+                maintype="application",
+                subtype="octet-stream",
+                filename=filename
+            )
+
+    return email
+
+
+def convert_msg(input_file, output_file):
+    """Main entry point."""
+    print(f"Processing: {input_file}")
+
+    msg = extract_msg.Message(input_file)
+
+    final_email = msg_to_eml(msg)
+
+    with open(output_file, "wb") as f:
+        f.write(final_email.as_bytes())
+
+    print(f"✔ Saved as: {output_file}")
+
+
+# ---------------- RUN ----------------
+if __name__ == "__main__":
+    convert_msg("email.msg", "email_converted.eml")
