@@ -1,0 +1,112 @@
+import extract_msg
+from email.message import EmailMessage
+import mimetypes
+
+
+def guess_mime(filename):
+    """Guess MIME type based on filename extension."""
+    mime, _ = mimetypes.guess_type(filename)
+    if mime:
+        return mime.split("/", 1)
+    return ("application", "octet-stream")  # Default fallback
+
+
+def get_html_body(msg):
+    """Safely get HTML body from any known attribute variations."""
+    html = (
+        getattr(msg, "body_html", None)
+        or getattr(msg, "htmlBody", None)
+        or getattr(msg, "bodyHTML", None)
+        or None
+    )
+    if isinstance(html, bytes):
+        try:
+            html = html.decode("utf-8", errors="ignore")
+        except:
+            return None
+    return html
+
+
+def normalize_text(body):
+    """Ensure text body is a proper UTF-8 string."""
+    if isinstance(body, bytes):
+        try:
+            return body.decode("utf-8", errors="ignore")
+        except:
+            return "(Unreadable Text Body)"
+    return body or ""
+
+
+def msg_to_eml(msg_obj):
+    """
+    Converts a .msg Message object to a fully RFC-compliant EmailMessage.
+    Supports recursive embedded messages.
+    """
+    eml = EmailMessage()
+
+    # ---- HEADERS ----
+    eml["From"] = msg_obj.sender or ""
+    eml["To"] = msg_obj.to or ""
+    if msg_obj.cc:
+        eml["Cc"] = msg_obj.cc
+    eml["Subject"] = msg_obj.subject or ""
+    eml["Date"] = msg_obj.date or ""
+
+    # ---- BODY (TEXT + HTML IF AVAILABLE) ----
+    text_body = normalize_text(msg_obj.body)
+    html_body = get_html_body(msg_obj)
+
+    if html_body:
+        eml.set_content(text_body or "(No plain text body)")
+        eml.add_alternative(html_body, subtype="html")
+    else:
+        eml.set_content(text_body or "(No body found)")
+
+    # ---- ATTACHMENTS ----
+    for attachment in msg_obj.attachments:
+        filename = attachment.filename or "Attachment"
+
+        # If the attachment is another .msg file → recursively convert
+        if filename.lower().endswith(".msg"):
+            nested_msg = extract_msg.openMsg(attachment.data)
+            nested_eml = msg_to_eml(nested_msg)
+
+            eml.add_attachment(
+                nested_eml.as_bytes(),
+                maintype="message",
+                subtype="rfc822",
+                filename=filename
+            )
+        else:
+            # Normal file attachment
+            maintype, subtype = guess_mime(filename)
+
+            eml.add_attachment(
+                attachment.data,
+                maintype=maintype,
+                subtype=subtype,
+                filename=filename
+            )
+
+    return eml
+
+
+def convert_msg_to_eml(input_msg_path, output_eml_path):
+    """Main entry: Converts a .msg file into an RFC822 .eml file."""
+    print(f"Processing: {input_msg_path} ...")
+    
+    msg = extract_msg.Message(input_msg_path)
+    eml = msg_to_eml(msg)
+
+    with open(output_eml_path, "wb") as f:
+        f.write(eml.as_bytes())
+
+    print(f"✔ Conversion complete — saved as: {output_eml_path}")
+
+
+# ---------- RUN ----------
+if __name__ == "__main__":
+    input_file = "email.msg"        # Change to your .msg filename
+    output_file = "converted.eml"   # Output filename
+
+    convert_msg_to_eml(input_file, output_file)
