@@ -1,0 +1,82 @@
+import extract_msg
+from email.message import EmailMessage
+
+
+def get_html_body(msg):
+    """Safely get the HTML body regardless of library version differences."""
+    return (
+        getattr(msg, "body_html", None)
+        or getattr(msg, "htmlBody", None)
+        or getattr(msg, "bodyHTML", None)
+        or None
+    )
+
+
+def msg_to_eml(msg_obj):
+    """
+    Convert an extract_msg object to an RFC-822 EmailMessage.
+    Handles nested .msg attachments recursively.
+    """
+    eml = EmailMessage()
+
+    # --- Headers ---
+    eml["From"] = msg_obj.sender or ""
+    eml["To"] = msg_obj.to or ""
+    
+    if msg_obj.cc:
+        eml["Cc"] = msg_obj.cc
+
+    eml["Subject"] = msg_obj.subject or ""
+    eml["Date"] = msg_obj.date or ""
+
+    # --- Body (text + optional HTML) ---
+    text_body = msg_obj.body or "(No text body found)"
+    html_body = get_html_body(msg_obj)
+
+    if html_body:
+        eml.set_content(text_body)
+        eml.add_alternative(html_body, subtype="html")
+    else:
+        eml.set_content(text_body)
+
+    # --- Attachments ---
+    for attachment in msg_obj.attachments:
+        filename = attachment.filename
+
+        # Embedded msg?
+        if filename.lower().endswith(".msg"):
+            nested_msg = extract_msg.openMsg(attachment.data)
+            nested_email = msg_to_eml(nested_msg)
+
+            eml.add_attachment(
+                nested_email.as_bytes(),
+                maintype="message",
+                subtype="rfc822",
+                filename=filename
+            )
+        else:
+            # Normal binary attachment
+            eml.add_attachment(
+                attachment.data,
+                maintype="application",
+                subtype="octet-stream",
+                filename=filename
+            )
+
+    return eml
+
+
+def convert_msg_to_eml(input_msg, output_eml):
+    """Main function"""
+    msg = extract_msg.Message(input_msg)
+    eml = msg_to_eml(msg)
+
+    with open(output_eml, "wb") as f:
+        f.write(eml.as_bytes())
+
+    print(f"✔ Converted to: {output_eml}")
+
+
+# ---------- RUN TEST ----------
+if __name__ == "__main__":
+    convert_msg_to_eml("email.msg", "email_output.eml")
