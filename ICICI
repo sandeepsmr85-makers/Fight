@@ -1,0 +1,89 @@
+import extract_msg
+from email.message import EmailMessage
+from email.utils import formatdate
+from io import BytesIO
+import base64
+
+
+def convert_msg_recursive(msg):
+    """
+    Convert an extract_msg.Message object to EmailMessage (RFC822).
+    Recursively handles nested .msg files.
+    """
+
+    email = EmailMessage()
+
+    # Set headers
+    if msg.sender:
+        email["From"] = msg.sender
+    if msg.to:
+        email["To"] = msg.to
+    if msg.cc:
+        email["Cc"] = msg.cc
+    if msg.subject:
+        email["Subject"] = msg.subject
+    if msg.date:
+        email["Date"] = msg.date
+
+    # Add body (prefer text over HTML unless only HTML exists)
+    body = msg.body or ""
+    
+    if body.strip():
+        email.set_content(body)
+    elif hasattr(msg, "htmlBody") and msg.htmlBody:
+        email.set_content("HTML body preserved below as attachment.")
+        email.add_alternative(msg.htmlBody, subtype="html")
+    else:
+        email.set_content("(No readable message body found)")
+
+    # Process attachments
+    for attach in msg.attachments:
+
+        filename = attach.longFilename or attach.shortFilename or "attachment"
+
+        if filename.lower().endswith(".msg"):
+            # Nested .msg → Convert to RFC822 and attach as .eml
+            nested_msg = extract_msg.openMsg(BytesIO(attach.data))
+            nested_email = convert_msg_recursive(nested_msg)
+
+            # Convert nested email to bytes
+            nested_bytes = nested_email.as_bytes()
+
+            email.add_attachment(
+                nested_bytes,
+                maintype="message",
+                subtype="rfc822",
+                filename=filename.replace(".msg", ".eml")
+            )
+        else:
+            # Normal file attachment
+            email.add_attachment(
+                attach.data,
+                maintype="application",
+                subtype="octet-stream",
+                filename=filename
+            )
+
+    return email
+
+
+def convert_msg_to_eml(input_file, output_file):
+    """Main function to load .msg and export final .eml"""
+
+    msg = extract_msg.Message(input_file)
+
+    rfc_email = convert_msg_recursive(msg)
+
+    with open(output_file, "wb") as f:
+        f.write(rfc_email.as_bytes())
+
+    print(f"🎉 Conversion complete:\n{output_file}")
+
+
+# ---------------- Run -----------------
+
+if __name__ == "__main__":
+    input_msg = "email.msg"        # Change this to your .msg filename
+    output_eml = "email_converted.eml"
+
+    convert_msg_to_eml(input_msg, output_eml)
