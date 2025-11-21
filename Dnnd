@@ -1,0 +1,80 @@
+Option Explicit
+
+Private Declare PtrSafe Function OpenClipboard Lib "user32" (ByVal hwnd As LongPtr) As Long
+Private Declare PtrSafe Function GetClipboardData Lib "user32" (ByVal wFormat As Integer) As LongPtr
+Private Declare PtrSafe Function CloseClipboard Lib "user32" () As Long
+
+Const CF_TEXT As Integer = 1
+
+Sub SaveAsEML_MIME()
+    Dim mail As MailItem
+    Dim filePath As String
+    Dim mimeText As String
+    
+    If Application.ActiveExplorer.Selection.Count = 0 Then
+        MsgBox "Select an email first.", vbExclamation
+        Exit Sub
+    End If
+
+    Set mail = Application.ActiveExplorer.Selection(1)
+
+    ' Trigger Outlook hidden command to copy MIME
+    Application.ActiveExplorer.CommandBars.ExecuteMso ("CopyMessage")
+
+    DoEvents ' Give clipboard time
+
+    mimeText = GetClipboardContent()
+
+    If Len(mimeText) < 50 Then
+        MsgBox "Failed to extract MIME. Outlook build may block this.", vbCritical
+        Exit Sub
+    End If
+
+    filePath = Environ$("USERPROFILE") & "\Desktop\" & CleanFileName(mail.Subject) & ".eml"
+
+    Dim f As Integer: f = FreeFile()
+    Open filePath For Binary As #f
+    Put #f, , mimeText
+    Close #f
+
+    MsgBox "Saved as .EML → " & filePath, vbInformation
+End Sub
+
+
+Function GetClipboardContent() As String
+    Dim ptr As LongPtr
+    Dim txt As String
+
+    If OpenClipboard(0&) Then
+        ptr = GetClipboardData(CF_TEXT)
+        If ptr <> 0 Then txt = PtrToString(ptr)
+        CloseClipboard
+    End If
+
+    GetClipboardContent = txt
+End Function
+
+Function PtrToString(addr As LongPtr) As String
+    Dim s As String, b As Byte
+    Do
+        b = Peek(addr)
+        If b = 0 Then Exit Do
+        s = s & Chr$(b)
+        addr = addr + 1
+    Loop
+    PtrToString = s
+End Function
+
+Private Function Peek(addr As LongPtr) As Byte
+    Peek = Val("&H" & Hex(addr Mod &H100&))
+End Function
+
+Function CleanFileName(s As String) As String
+    Dim badChars: badChars = Array("\", "/", ":", "*", "?", """", "<", ">", "|")
+    
+    Dim i%
+    For i = 0 To UBound(badChars)
+        s = Replace(s, badChars(i), "_")
+    Next
+    CleanFileName = Trim(s)
+End Function
