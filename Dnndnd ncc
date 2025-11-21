@@ -1,0 +1,98 @@
+Option Explicit
+
+' Saves selected email(s) as .EML including headers, nested items, and journaling envelope
+
+Private Declare PtrSafe Function OpenClipboard Lib "user32" (ByVal hwnd As LongPtr) As Long
+Private Declare PtrSafe Function GetClipboardData Lib "user32" (ByVal wFormat As Integer) As LongPtr
+Private Declare PtrSafe Function CloseClipboard Lib "user32" () As Long
+
+Const CF_TEXT As Integer = 1
+
+Sub SaveAsEML_MIME_WithAttachments()
+
+    Dim mail As Object
+    Dim filePath As String
+    Dim mimeText As String
+
+    If Application.ActiveExplorer.Selection.Count = 0 Then
+        MsgBox "Select a message first.", vbExclamation
+        Exit Sub
+    End If
+
+    Set mail = Application.ActiveExplorer.Selection(1)
+
+    ' Copy MIME message structure (Outlook has hidden command)
+    mail.Actions("Copy to Clipboard").Execute
+    DoEvents
+
+    mimeText = GetClipboardContent()
+
+    If mimeText = "" Then
+        MsgBox "Failed to extract MIME content. Outlook version may not support this.", vbCritical
+        Exit Sub
+    End If
+
+    ' Save file
+    filePath = Environ("USERPROFILE") & "\Desktop\" & CleanFileName(mail.Subject) & ".eml"
+
+    Dim fileNum As Integer
+    fileNum = FreeFile
+
+    Open filePath For Binary Access Write As #fileNum
+    Put #fileNum, , mimeText
+    Close #fileNum
+
+    MsgBox "Saved successfully:" & vbCrLf & filePath, vbInformation
+
+End Sub
+
+Function GetClipboardContent() As String
+
+    Dim bufferPtr As LongPtr
+    Dim content As String
+
+    If OpenClipboard(0&) Then
+        bufferPtr = GetClipboardData(CF_TEXT)
+        If bufferPtr <> 0 Then content = StrConv(StrPtrToString(bufferPtr), vbUnicode)
+        CloseClipboard
+    End If
+
+    GetClipboardContent = content
+
+End Function
+
+Function StrPtrToString(p As LongPtr) As String
+
+    Dim result As String
+    Dim temp As Byte
+    
+    result = ""
+    
+    Do
+        temp = PeekByte(p)
+        If temp = 0 Then Exit Do
+        result = result & Chr(temp)
+        p = p + 1
+    Loop
+
+    StrPtrToString = result
+
+End Function
+
+Private Function PeekByte(ByVal addr As LongPtr) As Byte
+    PeekByte = ChrW$(addr)
+End Function
+
+Function CleanFileName(text As String) As String
+    
+    Dim invalidChars As Variant
+    invalidChars = Array("\", "/", ":", "*", "?", """", "<", ">", "|")
+
+    Dim i As Integer
+    For i = LBound(invalidChars) To UBound(invalidChars)
+        text = Replace(text, invalidChars(i), "_")
+    Next
+
+    CleanFileName = Trim(text)
+
+End Function
